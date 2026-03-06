@@ -1,0 +1,44 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "compile",
+            "type": "shell",
+            "command": "/home/daviden1013/.nvm/versions/node/v24.14.0/bin/node esbuild.js",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "silent"
+            },
+            "problemMatcher": "$esbuild"
+        },
+        {
+            "label": "watch",
+            "type": "shell",
+            "command": "/home/daviden1013/.nvm/versions/node/v24.14.0/bin/node esbuild.js --watch",
+            "isBackground": true,
+            "group": "build",
+            "presentation": {
+                "reveal": "always"
+            },
+            "problemMatcher": {
+                "owner": "esbuild",
+                "pattern": {
+                    "regexp": "^(.*):(\\d+):(\\d+): (error|warning): (.*)$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "message": 5
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": "\\[watch\\] build started",
+                    "endsPattern": "\\[watch\\] build finished"
+                }
+            }
+        }
+    ]
+}

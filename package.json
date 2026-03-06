@@ -1,0 +1,157 @@
+{
+  "name": "medds-agent",
+  "displayName": "MedDS Agent",
+  "description": "Medical Data Science Agent for VS Code — powered by MedDSAgent-Core",
+  "version": "0.1.0",
+  "publisher": "medds",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other", "Machine Learning"],
+  "icon": "media/icon.png",
+  "activationEvents": [
+    "onWorkspaceContains:.vscode/medds-workspace"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "medds.newWorkspace",
+        "title": "MedDS: New Workspace"
+      },
+      {
+        "command": "medds.openWorkspace",
+        "title": "MedDS: Open Workspace"
+      },
+      {
+        "command": "medds.restartServer",
+        "title": "MedDS: Restart Server"
+      },
+      {
+        "command": "medds.showLog",
+        "title": "MedDS: Show Server Log"
+      },
+      {
+        "command": "medds.reinstallEnvironment",
+        "title": "MedDS: Reinstall Environment"
+      },
+      {
+        "command": "medds.newSession",
+        "title": "New Session",
+        "icon": "$(add)"
+      },
+      {
+        "command": "medds.renameSession",
+        "title": "Rename Session"
+      },
+      {
+        "command": "medds.deleteSession",
+        "title": "Delete Session"
+      },
+      {
+        "command": "medds.refreshSessions",
+        "title": "Refresh Sessions",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "medds.refreshEnvViewer",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "medds-sidebar",
+          "title": "MedDS Agent",
+          "icon": "media/activity-bar-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "medds-sidebar": [
+        {
+          "id": "medds.sessions",
+          "name": "Sessions"
+        },
+        {
+          "id": "medds.envViewer",
+          "name": "Environment",
+          "type": "webview"
+        },
+        {
+          "id": "medds.sessionConfig",
+          "name": "Session Config",
+          "type": "webview"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "medds.newSession",
+          "when": "view == medds.sessions",
+          "group": "navigation@1"
+        },
+        {
+          "command": "medds.refreshSessions",
+          "when": "view == medds.sessions",
+          "group": "navigation@2"
+        },
+        {
+          "command": "medds.refreshEnvViewer",
+          "when": "view == medds.envViewer",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "medds.renameSession",
+          "when": "view == medds.sessions && viewItem == session",
+          "group": "1_session@1"
+        },
+        {
+          "command": "medds.deleteSession",
+          "when": "view == medds.sessions && viewItem == session",
+          "group": "1_session@2"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "MedDS Agent",
+      "properties": {
+        "medds.pythonPath": {
+          "type": "string",
+          "default": "",
+          "description": "Base Python executable used to create the managed venv. Leave empty to auto-detect system Python."
+        },
+        "medds.port": {
+          "type": "number",
+          "default": 7842,
+          "description": "Port for the local MedDS server."
+        },
+        "medds.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically start the MedDS server when a MedDS workspace is opened."
+        },
+        "medds.packagePath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to a local medds_agent source directory (e.g. /path/to/MedDSAgent-Core). Leave empty to install from PyPI."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.3.0"
+  }
+}

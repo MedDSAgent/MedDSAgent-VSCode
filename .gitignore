@@ -1,1 +1,27 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+out/
+
+# Source maps
+**/*.js.map
+
+# VS Code test infrastructure
+.vscode-test/
+
+# Python
 *.pyc
+__pycache__/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment
+.env
