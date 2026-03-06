@@ -93,13 +93,13 @@
           "name": "Sessions"
         },
         {
-          "id": "medds.envViewer",
-          "name": "Environment",
+          "id": "medds.sessionConfig",
+          "name": "Session Config",
           "type": "webview"
         },
         {
-          "id": "medds.sessionConfig",
-          "name": "Session Config",
+          "id": "medds.envViewer",
+          "name": "Environment",
           "type": "webview"
         },
         {
