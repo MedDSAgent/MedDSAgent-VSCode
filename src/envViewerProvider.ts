@@ -15,7 +15,10 @@ export class EnvViewerProvider implements vscode.WebviewViewProvider {
     private sessionId?: string;
     private serverUrl: string = '';
 
-    constructor(private readonly extensionUri: vscode.Uri) {}
+    constructor(
+        private readonly extensionUri: vscode.Uri,
+        private readonly getSession: () => { sessionId: string; serverUrl: string } | undefined = () => undefined,
+    ) {}
 
     resolveWebviewView(webviewView: vscode.WebviewView) {
         this.view = webviewView;
@@ -24,6 +27,11 @@ export class EnvViewerProvider implements vscode.WebviewViewProvider {
             localResourceRoots: [this.extensionUri],
         };
         webviewView.webview.html = this._getHtml(webviewView.webview, '', '');
+
+        const session = this.getSession();
+        if (session) {
+            this.setSession(session.sessionId, session.serverUrl);
+        }
     }
 
     setSession(sessionId: string, serverUrl: string) {

@@ -9,13 +9,14 @@ function getNonce(): string {
 
 export class SessionConfigPanel implements vscode.WebviewViewProvider {
     private view?: vscode.WebviewView;
-    private sessionId?: string;
-    private serverUrl: string = '';
 
     private _onSaved = new vscode.EventEmitter<void>();
     readonly onSaved = this._onSaved.event;
 
-    constructor(private readonly extensionUri: vscode.Uri) {}
+    constructor(
+        private readonly extensionUri: vscode.Uri,
+        private readonly getSession: () => { sessionId: string; serverUrl: string } | undefined = () => undefined,
+    ) {}
 
     resolveWebviewView(webviewView: vscode.WebviewView) {
         this.view = webviewView;
@@ -23,23 +24,26 @@ export class SessionConfigPanel implements vscode.WebviewViewProvider {
             enableScripts: true,
             localResourceRoots: [this.extensionUri],
         };
-        webviewView.webview.html = this._getHtml(webviewView.webview);
+        webviewView.webview.html = this._getHtml();
 
         webviewView.webview.onDidReceiveMessage(msg => {
             if (msg.type === 'saved') this._onSaved.fire();
             if (msg.type === 'openExternal') vscode.env.openExternal(vscode.Uri.parse(msg.url));
         });
+
+        const session = this.getSession();
+        if (session) {
+            this.setSession(session.sessionId, session.serverUrl);
+        }
     }
 
     setSession(sessionId: string, serverUrl: string) {
-        this.sessionId = sessionId;
-        this.serverUrl = serverUrl;
         if (this.view) {
             this.view.webview.postMessage({ type: 'setSession', sessionId, serverUrl });
         }
     }
 
-    private _getHtml(webview: vscode.Webview): string {
+    private _getHtml(): string {
         const nonce = getNonce();
         const csp = [
             `default-src 'none'`,
@@ -91,8 +95,9 @@ export class SessionConfigPanel implements vscode.WebviewViewProvider {
   .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
   .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
   .lang-toggle { display: flex; gap: 12px; align-items: center; margin-top: 4px; }
-  .lang-toggle label { margin: 0; display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--fg); }
-  .lang-toggle input[type=radio] { accent-color: var(--accent); }
+  .lang-toggle label { margin: 0; display: flex; align-items: center; gap: 4px; cursor: default; font-size: 12px; color: var(--fg); opacity: 0.4; }
+  .lang-toggle label:has(input:checked) { opacity: 1; }
+  .lang-toggle input[type=radio] { accent-color: var(--accent); cursor: default; }
   .btn { padding: 5px 12px; border: 1px solid var(--border); border-radius: 4px; font-size: 12px; cursor: pointer; background: transparent; color: var(--fg-muted); transition: all 0.15s; }
   .btn:hover { border-color: var(--accent); color: var(--accent); }
   .btn-primary { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 600; }
@@ -124,10 +129,10 @@ export class SessionConfigPanel implements vscode.WebviewViewProvider {
 
     <label>Language</label>
     <div class="lang-toggle">
-      <label><input type="radio" name="language" value="python" checked> Python</label>
-      <label id="lang-r-label"><input type="radio" name="language" value="r"> R</label>
+      <label><input type="radio" name="language" value="python" checked disabled> Python</label>
+      <label id="lang-r-label"><input type="radio" name="language" value="r" disabled> R</label>
     </div>
-    <div class="lang-hint" id="r-hint" style="display:none">R not available in current environment</div>
+    <div class="lang-hint">Language is fixed at session creation and cannot be changed.</div>
 
     <div class="section-title" style="margin-top:12px">Agent Configuration</div>
 

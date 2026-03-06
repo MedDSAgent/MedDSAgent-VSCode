@@ -2,13 +2,14 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { WORKSPACE_MARKER, WORKSPACE_SETTINGS_FILE, VENV_PYTHON, DEFAULT_PORT } from './constants';
+import { WORKSPACE_MARKER, WORKSPACE_SETTINGS_FILE, VENV_PYTHON } from './constants';
 import { SetupManager } from './setupManager';
 import { ServerManager } from './serverManager';
 import { StatusBarManager } from './statusBar';
 import { SessionsProvider, SessionItem } from './sessionsProvider';
 import { EnvViewerProvider } from './envViewerProvider';
 import { SessionConfigPanel } from './sessionConfigPanel';
+import { NewSessionPanel } from './newSessionPanel';
 import { ChatPanel } from './chatPanel';
 
 function isMeddsWorkspace(): boolean {
@@ -65,8 +66,21 @@ export async function activate(context: vscode.ExtensionContext) {
     const statusBar = new StatusBarManager();
     context.subscriptions.push(statusBar);
 
-    serverManager.onStatusChange(status => {
+    serverManager.onStatusChange(async status => {
         statusBar.update(status, setupInfo?.r_available);
+        if (status === 'running') {
+            sessionsProvider.refresh();
+            const webviewServerUrl = (await vscode.env.asExternalUri(
+                vscode.Uri.parse(serverManager.serverUrl)
+            )).toString().replace(/\/$/, '');
+            const sessions = await serverManager.apiClient.listSessions().catch(() => []);
+            if (sessions.length > 0) {
+                const latest = sessions.reduce((a, b) =>
+                    new Date(a.last_accessed) > new Date(b.last_accessed) ? a : b
+                );
+                setCurrentSession(latest.session_id, webviewServerUrl);
+            }
+        }
     });
 
     // ── Sessions tree view ────────────────────────────────────────────────────
@@ -78,19 +92,38 @@ export async function activate(context: vscode.ExtensionContext) {
     });
     context.subscriptions.push(sessionsTree);
 
+    // ── Current session state ─────────────────────────────────────────────────
+
+    let currentSession: { sessionId: string; serverUrl: string } | undefined;
+
+    function setCurrentSession(sessionId: string, serverUrl: string) {
+        currentSession = { sessionId, serverUrl };
+        envViewer.setSession(sessionId, serverUrl);
+        sessionConfig.setSession(sessionId, serverUrl);
+        sessionsProvider.setActiveSession(sessionId);
+    }
+
     // ── Sidebar webview providers ─────────────────────────────────────────────
 
-    const envViewer = new EnvViewerProvider(extensionUri);
+    const envViewer = new EnvViewerProvider(extensionUri, () => currentSession);
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider('medds.envViewer', envViewer)
     );
 
-    const sessionConfig = new SessionConfigPanel(extensionUri);
+    const sessionConfig = new SessionConfigPanel(extensionUri, () => currentSession);
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider('medds.sessionConfig', sessionConfig)
     );
 
     sessionConfig.onSaved(() => sessionsProvider.refresh());
+
+    // ── Chat panel focus → update current session ─────────────────────────────
+
+    context.subscriptions.push(
+        ChatPanel.onAnyFocus(({ sessionId, serverUrl }) => {
+            setCurrentSession(sessionId, serverUrl);
+        })
+    );
 
     // ── Status bar click command ──────────────────────────────────────────────
 
@@ -111,12 +144,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('medds._openSession', async (sessionId: string) => {
-            sessionsProvider.setActiveSession(sessionId);
-            sessionsTree.reveal(
-                (await sessionsProvider.getChildren()).find(i => i.session.session_id === sessionId)!,
-                { select: true }
-            ).then(() => {}, () => {});
-
             const sessions = await serverManager.apiClient.listSessions().catch(() => []);
             const session = sessions.find(s => s.session_id === sessionId);
             const name = session?.name ?? 'Session';
@@ -129,8 +156,12 @@ export async function activate(context: vscode.ExtensionContext) {
             const panel = ChatPanel.open(extensionUri, sessionId, name, webviewServerUrl);
             panel.onEnvUpdate(data => envViewer.pushEnvUpdate(data));
 
-            envViewer.setSession(sessionId, webviewServerUrl);
-            sessionConfig.setSession(sessionId, webviewServerUrl);
+            setCurrentSession(sessionId, webviewServerUrl);
+
+            sessionsTree.reveal(
+                (await sessionsProvider.getChildren()).find(i => i.session.session_id === sessionId)!,
+                { select: true }
+            ).then(() => {}, () => {});
         })
     );
 
@@ -138,79 +169,38 @@ export async function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('medds.newSession', async () => {
-            // Step 1: Session name
-            const name = await vscode.window.showInputBox({
-                prompt: 'Session name',
-                value: `Analysis ${new Date().toLocaleDateString()}`,
-            });
-            if (!name) return;
+            const webviewServerUrl = (await vscode.env.asExternalUri(
+                vscode.Uri.parse(serverManager.serverUrl)
+            )).toString().replace(/\/$/, '');
 
-            // Step 2: LLM provider
-            const providerPick = await vscode.window.showQuickPick([
-                { label: 'OpenAI', value: 'openai' },
-                { label: 'Azure OpenAI', value: 'azure' },
-                { label: 'vLLM (local)', value: 'vllm' },
-                { label: 'SGLang (local)', value: 'sglang' },
-                { label: 'OpenRouter', value: 'openrouter' },
-            ], { placeHolder: 'Select LLM provider' });
-            if (!providerPick) return;
-            const provider = providerPick.value;
+            // If the panel is already open, just bring it to front
+            if (NewSessionPanel.hasInstance()) {
+                NewSessionPanel.open(extensionUri, webviewServerUrl);
+                return;
+            }
 
-            // Step 3: Model name
-            const defaultModel = provider === 'openai' ? 'gpt-4.1'
-                : provider === 'openrouter' ? 'openai/gpt-4.1'
-                : provider === 'azure' ? 'gpt-4'
-                : 'meta-llama/Llama-3.1-8B-Instruct';
-            const model = await vscode.window.showInputBox({
-                prompt: 'Model name',
-                value: defaultModel,
-            });
-            if (!model) return;
+            const newSessionPanel = NewSessionPanel.open(extensionUri, webviewServerUrl);
 
-            // Step 4: API key (skip for local providers)
-            let apiKey: string | undefined;
-            if (['openai', 'azure', 'openrouter'].includes(provider)) {
-                // Try to retrieve previously stored key
-                const storedKey = await context.secrets.get(`medds.apikey.${provider}`);
-                apiKey = await vscode.window.showInputBox({
-                    prompt: `API key for ${providerPick.label}`,
-                    value: storedKey ?? '',
-                    password: true,
-                    placeHolder: provider === 'openai' ? 'sk-...' : '',
-                });
-                if (apiKey === undefined) return;
-                if (apiKey) {
-                    await context.secrets.store(`medds.apikey.${provider}`, apiKey);
+            newSessionPanel.onCreate(async ({ name, config }) => {
+                try {
+                    const result = await serverManager.apiClient.createSession(name, config as any);
+                    sessionsProvider.refresh();
+
+                    // Repurpose the new-session tab into a chat panel in place
+                    const rawPanel = newSessionPanel.detach();
+                    const chatPanel = ChatPanel.openInExisting(extensionUri, rawPanel, result.session_id, name, webviewServerUrl);
+                    chatPanel.onEnvUpdate(data => envViewer.pushEnvUpdate(data));
+                    setCurrentSession(result.session_id, webviewServerUrl);
+
+                    sessionsTree.reveal(
+                        (await sessionsProvider.getChildren()).find(i => i.session.session_id === result.session_id)!,
+                        { select: true }
+                    ).then(() => {}, () => {});
+                } catch (e: any) {
+                    newSessionPanel.dispose();
+                    vscode.window.showErrorMessage(`Failed to create session: ${e.message}`);
                 }
-            }
-
-            // Step 5: Base URL (for local providers or Azure)
-            let baseUrl: string | undefined;
-            if (['vllm', 'sglang', 'azure'].includes(provider)) {
-                baseUrl = await vscode.window.showInputBox({
-                    prompt: provider === 'azure' ? 'Azure endpoint URL' : 'Base URL (e.g. http://localhost:8000/v1)',
-                    placeHolder: provider === 'azure' ? 'https://resource.openai.azure.com/' : 'http://localhost:8000/v1',
-                });
-                if (baseUrl === undefined) return;
-            }
-
-            const config: Record<string, any> = {
-                llm_provider: provider,
-                llm_model: model,
-                temperature: 1.0,
-                top_p: 1.0,
-                language: 'python',
-            };
-            if (apiKey) { config.llm_api_key = apiKey; }
-            if (baseUrl) { config.llm_base_url = baseUrl; }
-
-            try {
-                const result = await serverManager.apiClient.createSession(name, config as any);
-                sessionsProvider.refresh();
-                vscode.commands.executeCommand('medds._openSession', result.session_id);
-            } catch (e: any) {
-                vscode.window.showErrorMessage(`Failed to create session: ${e.message}`);
-            }
+            });
         })
     );
 

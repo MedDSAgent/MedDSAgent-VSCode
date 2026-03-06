@@ -10,6 +10,9 @@ function getNonce(): string {
 export class ChatPanel implements vscode.Disposable {
     private static panels = new Map<string, ChatPanel>();
 
+    private static _onAnyFocus = new vscode.EventEmitter<{ sessionId: string; serverUrl: string }>();
+    static readonly onAnyFocus = ChatPanel._onAnyFocus.event;
+
     private panel: vscode.WebviewPanel;
     private sessionId: string;
     private serverUrl: string;
@@ -18,30 +21,25 @@ export class ChatPanel implements vscode.Disposable {
     readonly onEnvUpdate = this._onEnvUpdate.event;
 
     private constructor(
-        extensionUri: vscode.Uri,
+        panel: vscode.WebviewPanel,
         sessionId: string,
-        sessionName: string,
         serverUrl: string,
     ) {
         this.sessionId = sessionId;
         this.serverUrl = serverUrl;
-
-        this.panel = vscode.window.createWebviewPanel(
-            'meddsChat',
-            `Chat: ${sessionName}`,
-            vscode.ViewColumn.One,
-            {
-                enableScripts: true,
-                retainContextWhenHidden: true,
-                localResourceRoots: [extensionUri],
-            }
-        );
+        this.panel = panel;
 
         const origin = new URL(serverUrl).origin;
         this.panel.webview.html = this._getHtml(origin);
 
         this.panel.webview.onDidReceiveMessage(msg => {
             if (msg.type === 'envUpdate') this._onEnvUpdate.fire(msg.data);
+        });
+
+        this.panel.onDidChangeViewState(e => {
+            if (e.webviewPanel.active) {
+                ChatPanel._onAnyFocus.fire({ sessionId: this.sessionId, serverUrl: this.serverUrl });
+            }
         });
 
         this.panel.onDidDispose(() => {
@@ -61,9 +59,37 @@ export class ChatPanel implements vscode.Disposable {
             existing.panel.reveal(vscode.ViewColumn.One);
             return existing;
         }
-        const panel = new ChatPanel(extensionUri, sessionId, sessionName, serverUrl);
-        ChatPanel.panels.set(sessionId, panel);
-        return panel;
+        const webviewPanel = vscode.window.createWebviewPanel(
+            'meddsChat',
+            `Chat: ${sessionName}`,
+            vscode.ViewColumn.One,
+            {
+                enableScripts: true,
+                retainContextWhenHidden: true,
+                localResourceRoots: [extensionUri],
+            }
+        );
+        const chatPanel = new ChatPanel(webviewPanel, sessionId, serverUrl);
+        ChatPanel.panels.set(sessionId, chatPanel);
+        return chatPanel;
+    }
+
+    /** Repurposes an existing WebviewPanel (e.g. from NewSessionPanel) into a ChatPanel. */
+    static openInExisting(
+        extensionUri: vscode.Uri,
+        existingPanel: vscode.WebviewPanel,
+        sessionId: string,
+        sessionName: string,
+        serverUrl: string,
+    ): ChatPanel {
+        existingPanel.title = `Chat: ${sessionName}`;
+        existingPanel.webview.options = {
+            enableScripts: true,
+            localResourceRoots: [extensionUri],
+        };
+        const chatPanel = new ChatPanel(existingPanel, sessionId, serverUrl);
+        ChatPanel.panels.set(sessionId, chatPanel);
+        return chatPanel;
     }
 
     dispose() {
