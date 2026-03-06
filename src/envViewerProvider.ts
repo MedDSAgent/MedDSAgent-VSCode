@@ -28,10 +28,12 @@ export class EnvViewerProvider implements vscode.WebviewViewProvider {
         };
         webviewView.webview.html = this._getHtml(webviewView.webview, '', '');
 
-        const session = this.getSession();
-        if (session) {
-            this.setSession(session.sessionId, session.serverUrl);
-        }
+        webviewView.webview.onDidReceiveMessage(msg => {
+            if (msg.type === 'ready') {
+                const session = this.getSession();
+                if (session) this.setSession(session.sessionId, session.serverUrl);
+            }
+        });
     }
 
     setSession(sessionId: string, serverUrl: string) {
@@ -147,6 +149,8 @@ window.addEventListener('message', e => {
     applyEnvUpdate(msg.data);
   }
 });
+
+vscode.postMessage({ type: 'ready' });
 
 async function loadVariables() {
   if (!currentSessionId || !currentServerUrl) return;

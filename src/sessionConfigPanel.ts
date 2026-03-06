@@ -29,12 +29,11 @@ export class SessionConfigPanel implements vscode.WebviewViewProvider {
         webviewView.webview.onDidReceiveMessage(msg => {
             if (msg.type === 'saved') this._onSaved.fire();
             if (msg.type === 'openExternal') vscode.env.openExternal(vscode.Uri.parse(msg.url));
+            if (msg.type === 'ready') {
+                const session = this.getSession();
+                if (session) this.setSession(session.sessionId, session.serverUrl);
+            }
         });
-
-        const session = this.getSession();
-        if (session) {
-            this.setSession(session.sessionId, session.serverUrl);
-        }
     }
 
     setSession(sessionId: string, serverUrl: string) {
@@ -392,6 +391,9 @@ function getLanguage() {
   const checked = document.querySelector('input[name=language]:checked');
   return checked ? checked.value : 'python';
 }
+
+// Signal readiness to extension host
+vscode.postMessage({ type: 'ready' });
 
 // Receive messages from extension
 window.addEventListener('message', async e => {
