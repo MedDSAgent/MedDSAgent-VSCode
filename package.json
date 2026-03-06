@@ -57,6 +57,24 @@
         "command": "medds.refreshEnvViewer",
         "title": "Refresh",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "medds.refreshSessionFiles",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "medds.uploadToSession",
+        "title": "Upload Files",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "medds.deleteSessionFile",
+        "title": "Delete"
+      },
+      {
+        "command": "medds.revealSessionFile",
+        "title": "Reveal in File Explorer"
       }
     ],
     "viewsContainers": {
@@ -83,6 +101,10 @@
           "id": "medds.sessionConfig",
           "name": "Session Config",
           "type": "webview"
+        },
+        {
+          "id": "medds.sessionFiles",
+          "name": "Workspace"
         }
       ]
     },
@@ -102,6 +124,16 @@
           "command": "medds.refreshEnvViewer",
           "when": "view == medds.envViewer",
           "group": "navigation"
+        },
+        {
+          "command": "medds.uploadToSession",
+          "when": "view == medds.sessionFiles",
+          "group": "navigation@1"
+        },
+        {
+          "command": "medds.refreshSessionFiles",
+          "when": "view == medds.sessionFiles",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
@@ -114,6 +146,21 @@
           "command": "medds.deleteSession",
           "when": "view == medds.sessions && viewItem == session",
           "group": "1_session@2"
+        },
+        {
+          "command": "medds.revealSessionFile",
+          "when": "view == medds.sessionFiles",
+          "group": "navigation@1"
+        },
+        {
+          "command": "medds.deleteSessionFile",
+          "when": "view == medds.sessionFiles && viewItem == sessionFolder",
+          "group": "2_edit@1"
+        },
+        {
+          "command": "medds.deleteSessionFile",
+          "when": "view == medds.sessionFiles && viewItem == sessionFile",
+          "group": "2_edit@1"
         }
       ]
     },

@@ -11,6 +11,7 @@ import { EnvViewerProvider } from './envViewerProvider';
 import { SessionConfigPanel } from './sessionConfigPanel';
 import { NewSessionPanel } from './newSessionPanel';
 import { ChatPanel } from './chatPanel';
+import { SessionFilesProvider, FileItem } from './sessionFilesProvider';
 
 function isMeddsWorkspace(): boolean {
     const folders = vscode.workspace.workspaceFolders;
@@ -92,6 +93,15 @@ export async function activate(context: vscode.ExtensionContext) {
     });
     context.subscriptions.push(sessionsTree);
 
+    // ── Session files tree view ───────────────────────────────────────────────
+
+    const sessionFilesProvider = new SessionFilesProvider(workspaceRoot);
+    const sessionFilesTree = vscode.window.createTreeView('medds.sessionFiles', {
+        treeDataProvider: sessionFilesProvider,
+        showCollapseAll: true,
+    });
+    context.subscriptions.push(sessionFilesTree, sessionFilesProvider);
+
     // ── Current session state ─────────────────────────────────────────────────
 
     let currentSession: { sessionId: string; serverUrl: string } | undefined;
@@ -101,6 +111,7 @@ export async function activate(context: vscode.ExtensionContext) {
         envViewer.setSession(sessionId, serverUrl);
         sessionConfig.setSession(sessionId, serverUrl);
         sessionsProvider.setActiveSession(sessionId);
+        sessionFilesProvider.setSession(sessionId);
     }
 
     // ── Sidebar webview providers ─────────────────────────────────────────────
@@ -251,6 +262,54 @@ export async function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('medds.refreshEnvViewer', () => envViewer.refresh())
+    );
+
+    // ── Commands: session files ───────────────────────────────────────────────
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('medds.refreshSessionFiles', () => sessionFilesProvider.refresh()),
+
+        vscode.commands.registerCommand('medds.uploadToSession', async () => {
+            const sessionPath = currentSession
+                ? path.join(workspaceRoot, 'sessions', currentSession.sessionId, 'uploads')
+                : undefined;
+            if (!sessionPath) {
+                vscode.window.showWarningMessage('No active session.');
+                return;
+            }
+            const uris = await vscode.window.showOpenDialog({
+                canSelectMany: true,
+                openLabel: 'Upload',
+            });
+            if (!uris || uris.length === 0) return;
+            for (const uri of uris) {
+                const dest = path.join(sessionPath, path.basename(uri.fsPath));
+                try {
+                    fs.copyFileSync(uri.fsPath, dest);
+                } catch (e: any) {
+                    vscode.window.showErrorMessage(`Upload failed for ${path.basename(uri.fsPath)}: ${e.message}`);
+                }
+            }
+        }),
+
+        vscode.commands.registerCommand('medds.deleteSessionFile', async (item: FileItem) => {
+            const label = path.basename(item.fsPath);
+            const answer = await vscode.window.showWarningMessage(
+                `Delete "${label}"? This cannot be undone.`,
+                { modal: true },
+                'Delete'
+            );
+            if (answer !== 'Delete') return;
+            try {
+                fs.rmSync(item.fsPath, { recursive: true, force: true });
+            } catch (e: any) {
+                vscode.window.showErrorMessage(`Delete failed: ${e.message}`);
+            }
+        }),
+
+        vscode.commands.registerCommand('medds.revealSessionFile', (item: FileItem) => {
+            vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(item.fsPath));
+        }),
     );
 
     // ── Command: restart server ───────────────────────────────────────────────
