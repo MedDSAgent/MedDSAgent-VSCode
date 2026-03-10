@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
-import { WORKSPACE_MARKER, WORKSPACE_SETTINGS_FILE, VENV_PYTHON } from './constants';
+import { WORKSPACE_MARKER, WORKSPACE_SETTINGS_FILE, VENV_PYTHON, VENV_DIR } from './constants';
 import { SetupManager } from './setupManager';
 import { ServerManager } from './serverManager';
 import { StatusBarManager } from './statusBar';
@@ -358,6 +359,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // ── Set workspace Python interpreter ─────────────────────────────────────
 
     _setWorkspacePython(workspaceRoot);
+    _warnIfWrongInterpreter(workspaceRoot);
 }
 
 export function deactivate() {
@@ -403,7 +405,7 @@ function _writeWorkspaceFiles(folder: string) {
     const settingsPath = path.join(folder, WORKSPACE_SETTINGS_FILE);
     let existing: any = {};
     try { existing = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')); } catch {}
-    existing['python.defaultInterpreterPath'] = VENV_PYTHON;
+    _applyVenvSettings(existing, folder);
     existing['medds.workspace'] = true;
     fs.writeFileSync(settingsPath, JSON.stringify(existing, null, 2));
 }
@@ -413,9 +415,82 @@ function _setWorkspacePython(workspaceRoot: string) {
     try {
         let existing: any = {};
         try { existing = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')); } catch {}
-        if (!existing['python.defaultInterpreterPath']) {
-            existing['python.defaultInterpreterPath'] = VENV_PYTHON;
-            fs.writeFileSync(settingsPath, JSON.stringify(existing, null, 2));
-        }
+        _applyVenvSettings(existing, workspaceRoot);
+        fs.writeFileSync(settingsPath, JSON.stringify(existing, null, 2));
     } catch {}
+}
+
+async function _warnIfWrongInterpreter(_workspaceRoot: string) {
+    const pythonExt = vscode.extensions.getExtension('ms-python.python');
+    if (!pythonExt) return;
+    if (!pythonExt.isActive) await pythonExt.activate();
+    const api = pythonExt.exports;
+
+    // Listen for the first interpreter-change event, which fires when the
+    // Python extension finishes loading its cached selection.
+    const onChanged =
+        api?.environments?.onDidChangeActiveEnvironmentPath ??
+        api?.environment?.onDidChangeActiveEnvironmentPath;
+    if (typeof onChanged !== 'function') return;
+
+    const sub = onChanged((e: any) => {
+        sub.dispose();
+        const selectedPath: string = e?.path ?? e?.id ?? e ?? '';
+        if (selectedPath && selectedPath !== VENV_PYTHON) {
+            vscode.window.showWarningMessage(
+                `MedDS: The active Python interpreter is not the MedDS environment. ` +
+                `Please select "${VENV_PYTHON}" using the Python interpreter picker (bottom-right status bar).`
+            );
+        }
+    });
+}
+
+function _applyVenvSettings(settings: any, workspaceRoot: string) {
+    settings['python.defaultInterpreterPath'] = VENV_PYTHON;
+    // Prevent the Python extension from injecting its own env activation into terminals;
+    // our shell profile handles activation instead.
+    settings['python.terminal.activateEnvironment'] = false;
+
+    const vscodedir = path.join(workspaceRoot, '.vscode');
+    const venvActivate = path.join(VENV_DIR, 'bin', 'activate');
+
+    if (process.platform === 'win32') {
+        const scriptPath = path.join(vscodedir, 'medds-activate.ps1');
+        const winActivate = path.join(VENV_DIR, 'Scripts', 'Activate.ps1');
+        fs.writeFileSync(scriptPath,
+            `try { conda deactivate 2>$null } catch {}\n` +
+            `& "${winActivate}"\n`
+        );
+        settings['terminal.integrated.profiles.windows'] = {
+            'MedDS': { source: 'PowerShell', args: ['-NoExit', '-File', scriptPath] },
+        };
+        settings['terminal.integrated.defaultProfile.windows'] = 'MedDS';
+    } else if (process.platform === 'darwin') {
+        // zsh (macOS default): redirect ZDOTDIR to our script
+        const zshrc = path.join(vscodedir, '.zshrc');
+        const homeDir = os.homedir();
+        fs.writeFileSync(zshrc,
+            `_real_home="${homeDir}"\n` +
+            `[[ -f "$_real_home/.zshrc" ]] && ZDOTDIR="$_real_home" source "$_real_home/.zshrc"\n` +
+            `while [[ -n "$CONDA_PREFIX" ]]; do conda deactivate 2>/dev/null || break; done\n` +
+            `source "${venvActivate}"\n`
+        );
+        settings['terminal.integrated.profiles.osx'] = {
+            'MedDS': { path: 'zsh', env: { ZDOTDIR: '${workspaceFolder}/.vscode' } },
+        };
+        settings['terminal.integrated.defaultProfile.osx'] = 'MedDS';
+    } else {
+        // bash (Linux): use --rcfile to control init order
+        const scriptPath = path.join(vscodedir, 'medds-activate.sh');
+        fs.writeFileSync(scriptPath,
+            `[[ -f ~/.bashrc ]] && source ~/.bashrc\n` +
+            `while [[ -n "$CONDA_PREFIX" ]]; do conda deactivate 2>/dev/null || break; done\n` +
+            `source "${venvActivate}"\n`
+        );
+        fs.chmodSync(scriptPath, 0o755);
+        settings['terminal.integrated.profiles.linux'] = {
+            'MedDS': { path: '/bin/bash', args: ['--rcfile', '${workspaceFolder}/.vscode/medds-activate.sh'] },
+        };
+        settings['terminal.integrated.defaultProfile.linux'] = 'MedDS';
+    }
 }
