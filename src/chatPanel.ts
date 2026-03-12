@@ -393,13 +393,31 @@ function handleSseEvent(evt) {
       if (Array.isArray(evt.data)) pendingToolCalls.push(...evt.data);
       break;
     }
-    case 'tool_output': {
+    case 'tool_running': {
       removeThinking();
       const tc = pendingToolCalls.shift();
       if (tc && tc.name !== 'end_round') {
         let args = tc.arguments;
         if (typeof args !== 'string') args = JSON.stringify(args, null, 2);
         appendToolCall(tc.name, args, tc.tool_title || '');
+      }
+      appendRunningIndicator();
+      scrollToBottom();
+      break;
+    }
+    case 'tool_output': {
+      removeThinking();
+      if (pendingToolCalls.length > 0) {
+        // Sync tool: display call and output together
+        const tc = pendingToolCalls.shift();
+        if (tc && tc.name !== 'end_round') {
+          let args = tc.arguments;
+          if (typeof args !== 'string') args = JSON.stringify(args, null, 2);
+          appendToolCall(tc.name, args, tc.tool_title || '');
+        }
+      } else {
+        // Async tool: code already shown on tool_running, just remove the running indicator
+        removeRunningIndicator();
       }
       appendToolOutput(evt.data || '');
       scrollToBottom();
@@ -426,6 +444,7 @@ function handleSseEvent(evt) {
     case 'error': {
       removeThinking();
       pendingToolCalls = [];
+      document.querySelectorAll('.running-indicator').forEach(el => el.remove());
       appendAgent('<span style="color:var(--danger)">' + esc(evt.data || 'Unknown error') + '</span>');
       setSendState(false);
       scrollToBottom();
@@ -542,6 +561,18 @@ function appendToolOutput(output) {
     '</div>' +
     '<div class="step-content"><pre>' + esc(output) + '</pre></div>';
   messagesEl.appendChild(div);
+}
+
+function appendRunningIndicator() {
+  const div = document.createElement('div');
+  div.className = 'running-indicator msg-block';
+  div.innerHTML = '<span style="color:var(--fg-muted);font-style:italic;font-size:12px">&#9679;&#160;Running...</span>';
+  messagesEl.appendChild(div);
+}
+
+function removeRunningIndicator() {
+  const el = messagesEl.querySelector('.running-indicator');
+  if (el) el.remove();
 }
 
 
