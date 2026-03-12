@@ -102,6 +102,7 @@ export class SessionConfigPanel implements vscode.WebviewViewProvider {
   .btn-primary { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 600; }
   .btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: #000; }
   .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  input:disabled, select:disabled, textarea:disabled { opacity: 0.5; cursor: default; }
   .footer { display: flex; justify-content: flex-end; gap: 6px; margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border); }
   .status-msg { font-size: 11px; margin-top: 4px; }
   .status-msg.success { color: var(--success); }
@@ -132,6 +133,21 @@ export class SessionConfigPanel implements vscode.WebviewViewProvider {
       <label id="lang-r-label"><input type="radio" name="language" value="r" disabled> R</label>
     </div>
     <div class="lang-hint">Language is fixed at session creation and cannot be changed.</div>
+
+    <div class="section-title" style="margin-top:12px">Code Environment</div>
+
+    <!-- Python env -->
+    <div id="env-python">
+      <label>Python Binary</label>
+      <input type="text" id="python-bin" placeholder="~/.medds/venv/bin/python" disabled>
+    </div>
+
+    <!-- R env -->
+    <div id="env-r" style="display:none">
+      <label>R Home</label>
+      <input type="text" id="r-home" placeholder="auto-detected" disabled>
+    </div>
+    <div class="lang-hint">Code environment is fixed at session creation and cannot be changed.</div>
 
     <div class="section-title" style="margin-top:12px">Agent Configuration</div>
 
@@ -460,6 +476,10 @@ function populateForm(session) {
 
   const lang = (c.language || 'python').toLowerCase();
   document.querySelector('input[name=language][value=' + lang + ']').checked = true;
+  document.getElementById('env-python').style.display = lang === 'python' ? 'block' : 'none';
+  document.getElementById('env-r').style.display      = lang === 'r'      ? 'block' : 'none';
+  document.getElementById('python-bin').value = c.python_bin || '';
+  document.getElementById('r-home').value     = c.r_home     || '';
   updateDbHint();
 
   document.getElementById('db-code').value = c.db_connection_code || '';

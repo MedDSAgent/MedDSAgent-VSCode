@@ -17,7 +17,7 @@ export class NewSessionPanel {
     private _onCreate = new vscode.EventEmitter<{ name: string; config: Record<string, any> }>();
     readonly onCreate = this._onCreate.event;
 
-    private constructor(extensionUri: vscode.Uri, serverUrl: string) {
+    private constructor(extensionUri: vscode.Uri, serverUrl: string, venvPython: string) {
         const defaultName = `Analysis ${new Date().toLocaleDateString()}`;
 
         this.panel = vscode.window.createWebviewPanel(
@@ -32,7 +32,7 @@ export class NewSessionPanel {
         );
 
         const origin = new URL(serverUrl).origin;
-        this.panel.webview.html = this._getHtml(origin, serverUrl, defaultName);
+        this.panel.webview.html = this._getHtml(origin, serverUrl, defaultName, venvPython);
 
         this.messageHandlerDisposable = this.panel.webview.onDidReceiveMessage(msg => {
             if (msg.type === 'create') {
@@ -56,12 +56,12 @@ export class NewSessionPanel {
         return NewSessionPanel.instance !== undefined;
     }
 
-    static open(extensionUri: vscode.Uri, serverUrl: string): NewSessionPanel {
+    static open(extensionUri: vscode.Uri, serverUrl: string, venvPython: string): NewSessionPanel {
         if (NewSessionPanel.instance) {
             NewSessionPanel.instance.panel.reveal(vscode.ViewColumn.Active);
             return NewSessionPanel.instance;
         }
-        NewSessionPanel.instance = new NewSessionPanel(extensionUri, serverUrl);
+        NewSessionPanel.instance = new NewSessionPanel(extensionUri, serverUrl, venvPython);
         return NewSessionPanel.instance;
     }
 
@@ -82,7 +82,7 @@ export class NewSessionPanel {
         this.panel.dispose();
     }
 
-    private _getHtml(origin: string, serverUrl: string, defaultName: string): string {
+    private _getHtml(origin: string, serverUrl: string, defaultName: string, venvPython: string): string {
         const nonce = getNonce();
         const csp = [
             `default-src 'none'`,
@@ -175,6 +175,22 @@ export class NewSessionPanel {
       <div class="lang-toggle">
         <label><input type="radio" name="language" value="python" checked> Python</label>
         <label><input type="radio" name="language" value="r"> R</label>
+      </div>
+
+      <div class="section-title" style="margin-top:14px">Code Environment</div>
+
+      <!-- Python env -->
+      <div id="env-python">
+        <label>Python Binary <span style="font-weight:normal;color:var(--fg-muted)">(optional)</span></label>
+        <input type="text" id="python-bin" placeholder="${venvPython}">
+        <div class="hint">Path to the Python binary for code execution. Leave blank to use the MedDS managed environment.</div>
+      </div>
+
+      <!-- R env -->
+      <div id="env-r" style="display:none">
+        <label>R Home <span style="font-weight:normal;color:var(--fg-muted)">(optional)</span></label>
+        <input type="text" id="r-home" placeholder="auto-detected">
+        <div class="hint">Path to R installation (R_HOME). Leave blank to use the system-detected R. rpy2 runs in the MedDS managed environment.</div>
       </div>
 
       <div class="section-title">Agent Configuration</div>
@@ -311,10 +327,13 @@ function updateProviderVis() {
 }
 updateProviderVis();
 
-// ── Language → DB hint ────────────────────────────────────────────────────────
-document.querySelectorAll('input[name=language]').forEach(r => r.addEventListener('change', updateDbHint));
-function updateDbHint() {
-  if (getLanguage() === 'r') {
+// ── Language → env section + DB hint ─────────────────────────────────────────
+document.querySelectorAll('input[name=language]').forEach(r => r.addEventListener('change', updateLanguageUi));
+function updateLanguageUi() {
+  const lang = getLanguage();
+  document.getElementById('env-python').style.display = lang === 'python' ? 'block' : 'none';
+  document.getElementById('env-r').style.display = lang === 'r' ? 'block' : 'none';
+  if (lang === 'r') {
     document.getElementById('db-label').textContent = 'R Connection Code';
     document.getElementById('db-hint').textContent = 'Write R code creating a DBI connection (e.g. con <- dbConnect(...)).';
     document.getElementById('db-code').placeholder = 'library(DBI)\\ncon <- dbConnect(RPostgres::Postgres(), host="localhost", ...)';
@@ -399,6 +418,11 @@ document.getElementById('create-btn').addEventListener('click', () => {
   if (apiKey)     config.llm_api_key     = apiKey;
   if (baseUrl)    config.llm_base_url    = baseUrl;
   if (apiVersion) config.llm_api_version = apiVersion;
+
+  const pythonBin = document.getElementById('python-bin').value.trim();
+  const rHome     = document.getElementById('r-home').value.trim();
+  if (getLanguage() === 'python' && pythonBin) config.python_bin = pythonBin;
+  if (getLanguage() === 'r'      && rHome)     config.r_home     = rHome;
 
   const reasoning = document.getElementById('reasoning').value;
   if (reasoning) config.reasoning_effort = reasoning;

@@ -19,6 +19,8 @@ export interface SessionConfig {
     top_p: number;
     reasoning_effort?: string;
     language: string;
+    python_bin?: string;
+    r_home?: string;
     db_connection_code?: string;
     specialty_id?: string;
     specialty_prompt?: string;

@@ -192,33 +192,42 @@ export async function activate(context: vscode.ExtensionContext) {
 
             // If the panel is already open, just bring it to front
             if (NewSessionPanel.hasInstance()) {
-                NewSessionPanel.open(extensionUri, webviewServerUrl);
+                NewSessionPanel.open(extensionUri, webviewServerUrl, VENV_PYTHON);
                 return;
             }
 
-            const newSessionPanel = NewSessionPanel.open(extensionUri, webviewServerUrl);
+            const newSessionPanel = NewSessionPanel.open(extensionUri, webviewServerUrl, VENV_PYTHON);
 
             newSessionPanel.onCreate(async ({ name, config }) => {
                 try {
                     // ── R prerequisite check ──────────────────────────────────
                     if (config.language === 'r') {
-                        const rCheck = await setupManager.checkR();
-                        if (!rCheck) {
-                            newSessionPanel.sendMessage({
-                                type: 'createError',
-                                text: 'R is not found. Install R or set medds.rscriptPath if R is in a conda environment.',
-                            });
-                            vscode.window.showErrorMessage(
-                                'MedDS: R is not installed or not on PATH.',
-                                'Download R', 'Configure Path'
-                            ).then(action => {
-                                if (action === 'Download R') vscode.env.openExternal(vscode.Uri.parse('https://cran.r-project.org/'));
-                                else if (action === 'Configure Path') vscode.commands.executeCommand('workbench.action.openSettings', 'medds.rscriptPath');
-                            });
-                            return;
+                        let rHome: string | undefined = config.r_home || undefined;
+
+                        // If user didn't specify r_home, auto-detect via Rscript
+                        if (!rHome) {
+                            const rCheck = await setupManager.checkR();
+                            if (!rCheck) {
+                                newSessionPanel.sendMessage({
+                                    type: 'createError',
+                                    text: 'R is not found. Install R, set medds.rscriptPath, or specify R Home above.',
+                                });
+                                vscode.window.showErrorMessage(
+                                    'MedDS: R is not installed or not on PATH.',
+                                    'Download R', 'Configure Path'
+                                ).then(action => {
+                                    if (action === 'Download R') vscode.env.openExternal(vscode.Uri.parse('https://cran.r-project.org/'));
+                                    else if (action === 'Configure Path') vscode.commands.executeCommand('workbench.action.openSettings', 'medds.rscriptPath');
+                                });
+                                return;
+                            }
+                            rHome = rCheck.rHome ?? undefined;
                         }
 
-                        const rHome = rCheck.rHome ?? undefined;
+                        // Always use the medds venv python (where rpy2 lives) for R sessions
+                        config.python_bin = VENV_PYTHON;
+                        if (rHome) config.r_home = rHome;
+
                         const rpy2Ok = await setupManager.checkRpy2(rHome);
                         if (!rpy2Ok) {
                             const installed = await vscode.window.withProgress(
