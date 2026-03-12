@@ -65,6 +65,11 @@ export class NewSessionPanel {
         return NewSessionPanel.instance;
     }
 
+    /** Send a message to the webview (e.g. to reset the create button on error). */
+    sendMessage(msg: unknown) {
+        this.panel.webview.postMessage(msg);
+    }
+
     /** Detaches the underlying WebviewPanel for reuse as a ChatPanel. */
     detach(): vscode.WebviewPanel {
         this.messageHandlerDisposable.dispose();
@@ -417,6 +422,18 @@ function getLanguage() {
   const checked = document.querySelector('input[name=language]:checked');
   return checked ? checked.value : 'python';
 }
+
+// ── Messages from extension host ──────────────────────────────────────────────
+window.addEventListener('message', e => {
+  const msg = e.data;
+  if (msg.type === 'createError') {
+    document.getElementById('create-btn').disabled = false;
+    document.getElementById('create-btn').textContent = 'Create Session';
+    document.getElementById('cancel-btn').disabled = false;
+    document.getElementById('create-status').className = 'status-msg error';
+    document.getElementById('create-status').textContent = msg.text;
+  }
+});
 
 // ── Load specialty prompts on init ────────────────────────────────────────────
 async function loadSpecialtyIndex() {

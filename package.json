@@ -75,6 +75,11 @@
       {
         "command": "medds.revealSessionFile",
         "title": "Reveal in File Explorer"
+      },
+      {
+        "command": "medds.indexSessionFile",
+        "title": "Index for Document Search",
+        "icon": "$(search)"
       }
     ],
     "viewsContainers": {
@@ -161,6 +166,16 @@
           "command": "medds.deleteSessionFile",
           "when": "view == medds.sessionFiles && viewItem == sessionFile",
           "group": "2_edit@1"
+        },
+        {
+          "command": "medds.indexSessionFile",
+          "when": "view == medds.sessionFiles && viewItem == sessionFile-uploads",
+          "group": "1_index@1"
+        },
+        {
+          "command": "medds.deleteSessionFile",
+          "when": "view == medds.sessionFiles && viewItem == sessionFile-uploads",
+          "group": "2_edit@1"
         }
       ]
     },
@@ -186,6 +201,11 @@
           "type": "string",
           "default": "",
           "description": "Path to a local medds_agent source directory (e.g. /path/to/MedDSAgent-Core). Leave empty to install from PyPI."
+        },
+        "medds.rscriptPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the Rscript executable (e.g. /home/user/miniconda3/envs/r-env/bin/Rscript). Required only when R is installed in a conda environment and VS Code is not launched with that environment active. Leave empty to auto-detect R on PATH."
         }
       }
     }

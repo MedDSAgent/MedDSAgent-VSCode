@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import { WORKSPACE_MARKER, WORKSPACE_SETTINGS_FILE, VENV_PYTHON, VENV_DIR } from './constants';
+import { WORKSPACE_MARKER, WORKSPACE_SETTINGS_FILE, VENV_PYTHON, VENV_DIR, INDEXABLE_EXTENSIONS } from './constants';
 import { SetupManager } from './setupManager';
 import { ServerManager } from './serverManager';
 import { StatusBarManager } from './statusBar';
@@ -61,6 +61,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // ── Server manager ────────────────────────────────────────────────────────
 
     const serverManager = new ServerManager(workspaceRoot);
+    serverManager.extraEnv = setupManager.getServerEnvAdditions();
     context.subscriptions.push(serverManager);
 
     // ── Status bar ────────────────────────────────────────────────────────────
@@ -96,7 +97,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // ── Session files tree view ───────────────────────────────────────────────
 
-    const sessionFilesProvider = new SessionFilesProvider(workspaceRoot);
+    const sessionFilesProvider = new SessionFilesProvider(workspaceRoot, () => serverManager.apiClient);
     const sessionFilesTree = vscode.window.createTreeView('medds.sessionFiles', {
         treeDataProvider: sessionFilesProvider,
         showCollapseAll: true,
@@ -167,6 +168,10 @@ export async function activate(context: vscode.ExtensionContext) {
 
             const panel = ChatPanel.open(extensionUri, sessionId, name, webviewServerUrl);
             panel.onEnvUpdate(data => envViewer.pushEnvUpdate(data));
+            panel.onFileIndexChange(({ fileName, status }) => {
+                if (status === 'indexing') sessionFilesProvider.startPollingIndex(fileName);
+                else sessionFilesProvider.markIndexed(fileName);
+            });
 
             setCurrentSession(sessionId, webviewServerUrl);
 
@@ -195,6 +200,43 @@ export async function activate(context: vscode.ExtensionContext) {
 
             newSessionPanel.onCreate(async ({ name, config }) => {
                 try {
+                    // ── R prerequisite check ──────────────────────────────────
+                    if (config.language === 'r') {
+                        const rCheck = await setupManager.checkR();
+                        if (!rCheck) {
+                            newSessionPanel.sendMessage({
+                                type: 'createError',
+                                text: 'R is not found. Install R or set medds.rscriptPath if R is in a conda environment.',
+                            });
+                            vscode.window.showErrorMessage(
+                                'MedDS: R is not installed or not on PATH.',
+                                'Download R', 'Configure Path'
+                            ).then(action => {
+                                if (action === 'Download R') vscode.env.openExternal(vscode.Uri.parse('https://cran.r-project.org/'));
+                                else if (action === 'Configure Path') vscode.commands.executeCommand('workbench.action.openSettings', 'medds.rscriptPath');
+                            });
+                            return;
+                        }
+
+                        const rHome = rCheck.rHome ?? undefined;
+                        const rpy2Ok = await setupManager.checkRpy2(rHome);
+                        if (!rpy2Ok) {
+                            const installed = await vscode.window.withProgress(
+                                { location: vscode.ProgressLocation.Notification, title: 'MedDS: Installing rpy2...', cancellable: false },
+                                () => setupManager.installRpy2(rHome)
+                            );
+                            if (!installed) {
+                                newSessionPanel.sendMessage({
+                                    type: 'createError',
+                                    text: 'rpy2 installation failed. Check the MedDS Setup log.',
+                                });
+                                return;
+                            }
+                            // Refresh server env with newly saved R_HOME
+                            serverManager.extraEnv = setupManager.getServerEnvAdditions();
+                        }
+                    }
+
                     const result = await serverManager.apiClient.createSession(name, config as any);
                     sessionsProvider.refresh();
 
@@ -202,6 +244,10 @@ export async function activate(context: vscode.ExtensionContext) {
                     const rawPanel = newSessionPanel.detach();
                     const chatPanel = ChatPanel.openInExisting(extensionUri, rawPanel, result.session_id, name, webviewServerUrl);
                     chatPanel.onEnvUpdate(data => envViewer.pushEnvUpdate(data));
+                    chatPanel.onFileIndexChange(({ fileName, status }) => {
+                        if (status === 'indexing') sessionFilesProvider.startPollingIndex(fileName);
+                        else sessionFilesProvider.markIndexed(fileName);
+                    });
                     setCurrentSession(result.session_id, webviewServerUrl);
 
                     sessionsTree.reveal(
@@ -284,11 +330,25 @@ export async function activate(context: vscode.ExtensionContext) {
             });
             if (!uris || uris.length === 0) return;
             for (const uri of uris) {
-                const dest = path.join(sessionPath, path.basename(uri.fsPath));
+                const fileName = path.basename(uri.fsPath);
+                const dest = path.join(sessionPath, fileName);
                 try {
                     fs.copyFileSync(uri.fsPath, dest);
+                    // Trigger indexing directly — don't rely solely on the filesystem watcher
+                    if (INDEXABLE_EXTENSIONS.has(path.extname(fileName).toLowerCase()) && serverManager.status === 'running') {
+                        serverManager.apiClient.indexDocument(currentSession!.sessionId, fileName, 'uploads')
+                            .then(result => {
+                                if (result.status === 'already_indexed') {
+                                    sessionFilesProvider.markIndexed(fileName);
+                                } else {
+                                    vscode.window.showInformationMessage(`Indexing '${fileName}'... The agent will be notified when complete.`);
+                                    sessionFilesProvider.startPollingIndex(fileName);
+                                }
+                            })
+                            .catch(() => {});
+                    }
                 } catch (e: any) {
-                    vscode.window.showErrorMessage(`Upload failed for ${path.basename(uri.fsPath)}: ${e.message}`);
+                    vscode.window.showErrorMessage(`Upload failed for ${fileName}: ${e.message}`);
                 }
             }
         }),
@@ -311,6 +371,63 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('medds.revealSessionFile', (item: FileItem) => {
             vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(item.fsPath));
         }),
+
+        vscode.commands.registerCommand('medds.indexSessionFile', async (item: FileItem) => {
+            const sessionId = sessionFilesProvider.sessionId;
+            if (!sessionId) {
+                vscode.window.showWarningMessage('No active session.');
+                return;
+            }
+            const fileName = path.basename(item.fsPath);
+            try {
+                const result = await serverManager.apiClient.indexDocument(sessionId, fileName, 'uploads');
+                if (result.status === 'already_indexed') {
+                    vscode.window.showInformationMessage(`'${fileName}' is already indexed.`);
+                    sessionFilesProvider.markIndexed(fileName);
+                } else {
+                    vscode.window.showInformationMessage(`Indexing '${fileName}'... The agent will be notified when complete.`);
+                    sessionFilesProvider.startPollingIndex(fileName);
+                }
+            } catch (e: any) {
+                vscode.window.showErrorMessage(`Indexing failed: ${e.message}`);
+            }
+        }),
+    );
+
+    // ── Auto-index files dropped/copied into uploads/ ────────────────────────
+
+    const uploadsWatcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(workspaceRoot, 'sessions/*/uploads/*')
+    );
+    context.subscriptions.push(
+        uploadsWatcher,
+        uploadsWatcher.onDidCreate(async (uri) => {
+            if (!INDEXABLE_EXTENSIONS.has(path.extname(uri.fsPath).toLowerCase())) return;
+            if (serverManager.status !== 'running') return;
+
+            // Extract sessionId from path: .../sessions/{sessionId}/uploads/{file}
+            const parts = uri.fsPath.split(path.sep);
+            const sessionsIdx = parts.lastIndexOf('sessions');
+            if (sessionsIdx === -1) return;
+            const droppedSessionId = parts[sessionsIdx + 1];
+            const fileName = parts[parts.length - 1];
+
+            try {
+                const result = await serverManager.apiClient.indexDocument(droppedSessionId, fileName, 'uploads');
+                if (result.status === 'already_indexed') {
+                    if (droppedSessionId === sessionFilesProvider.sessionId) {
+                        sessionFilesProvider.markIndexed(fileName);
+                    }
+                } else {
+                    vscode.window.showInformationMessage(`Indexing '${fileName}'... The agent will be notified when complete.`);
+                    if (droppedSessionId === sessionFilesProvider.sessionId) {
+                        sessionFilesProvider.startPollingIndex(fileName);
+                    }
+                }
+            } catch (e: any) {
+                vscode.window.showErrorMessage(`Auto-index failed for '${fileName}': ${e.message}`);
+            }
+        })
     );
 
     // ── Command: restart server ───────────────────────────────────────────────

@@ -20,6 +20,9 @@ export class ChatPanel implements vscode.Disposable {
     private _onEnvUpdate = new vscode.EventEmitter<any>();
     readonly onEnvUpdate = this._onEnvUpdate.event;
 
+    private _onFileIndexChange = new vscode.EventEmitter<{ fileName: string; status: 'indexing' | 'done' }>();
+    readonly onFileIndexChange = this._onFileIndexChange.event;
+
     private constructor(
         panel: vscode.WebviewPanel,
         sessionId: string,
@@ -34,6 +37,8 @@ export class ChatPanel implements vscode.Disposable {
 
         this.panel.webview.onDidReceiveMessage(msg => {
             if (msg.type === 'envUpdate') this._onEnvUpdate.fire(msg.data);
+            if (msg.type === 'fileIndexing') this._onFileIndexChange.fire({ fileName: msg.fileName, status: 'indexing' });
+            if (msg.type === 'fileIndexed') this._onFileIndexChange.fire({ fileName: msg.fileName, status: 'done' });
         });
 
         this.panel.onDidChangeViewState(e => {
@@ -45,6 +50,7 @@ export class ChatPanel implements vscode.Disposable {
         this.panel.onDidDispose(() => {
             ChatPanel.panels.delete(sessionId);
             this._onEnvUpdate.dispose();
+            this._onFileIndexChange.dispose();
         });
     }
 
@@ -274,6 +280,8 @@ messagesEl.addEventListener('drop', e => {
   if (e.dataTransfer.files.length > 0) uploadFiles(e.dataTransfer.files);
 });
 
+const INDEXABLE_EXTENSIONS = new Set(['.pdf', '.docx', '.pptx', '.xlsx', '.html', '.htm', '.md', '.txt']);
+
 async function uploadFiles(files) {
   for (const file of files) {
     const fd = new FormData();
@@ -284,6 +292,27 @@ async function uploadFiles(files) {
       });
       if (!res.ok) throw new Error((await res.json()).detail || 'Upload failed');
       appendSystem('File "' + file.name + '" uploaded to uploads/');
+
+      // Auto-index if the file type is supported
+      const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+      if (INDEXABLE_EXTENSIONS.has(ext)) {
+        try {
+          const idxRes = await fetch(SERVER_URL + '/sessions/' + SESSION_ID + '/index', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ file_name: file.name, path: 'uploads' }),
+          });
+          if (idxRes.ok) {
+            const idxData = await idxRes.json();
+            if (idxData.status === 'already_indexed') {
+              vscode.postMessage({ type: 'fileIndexed', fileName: file.name });
+            } else {
+              appendSystem('Indexing "' + file.name + '"...');
+              vscode.postMessage({ type: 'fileIndexing', fileName: file.name });
+            }
+          }
+        } catch {}
+      }
     } catch(e) {
       appendSystem('Upload failed: ' + e.message);
     }

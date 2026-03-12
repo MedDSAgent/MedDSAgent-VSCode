@@ -25,7 +25,13 @@ export const DEFAULT_PORT = 7842;
 export const HEALTH_POLL_INTERVAL_MS = 1000;
 export const HEALTH_POLL_MAX_ATTEMPTS = 30;
 
-export const PACKAGE_EXTRAS = '[server]';
+export const PACKAGE_EXTRAS = '[server,docling]';
+
+/** Mirror of PARSEABLE_EXTENSIONS in medds_agent/document_parser.py */
+export const INDEXABLE_EXTENSIONS = new Set([
+    '.pdf', '.docx', '.pptx', '.xlsx',
+    '.html', '.htm', '.md', '.txt',
+]);
 export const PACKAGE_PYPI_NAME = 'medds_agent';
 
 export const OUTPUT_CHANNEL_SERVER = 'MedDS: Server';

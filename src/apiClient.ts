@@ -56,6 +56,22 @@ export interface VariablesResponse {
     r?: VariableInfo[];
 }
 
+export interface FileInfo {
+    name: string;
+    path: string;
+    size: number;
+    size_human: string;
+    is_directory: boolean;
+    modified_at: string;
+}
+
+export interface IndexStatus {
+    file_name: string;
+    status: 'not_indexed' | 'indexing' | 'done' | 'failed';
+    section_count: number;
+    error_message: string | null;
+}
+
 export class ApiClient {
     constructor(public readonly serverUrl: string) {}
 
@@ -77,17 +93,17 @@ export class ApiClient {
 
     async health(): Promise<HealthStatus> {
         const r = await this._fetch('/health');
-        return r.json();
+        return r.json() as Promise<HealthStatus>;
     }
 
     async listSessions(): Promise<SessionInfo[]> {
         const r = await this._fetch('/sessions');
-        return r.json();
+        return r.json() as Promise<SessionInfo[]>;
     }
 
     async getSession(sessionId: string): Promise<SessionDetail> {
         const r = await this._fetch(`/sessions/${sessionId}`);
-        return r.json();
+        return r.json() as Promise<SessionDetail>;
     }
 
     async createSession(name: string, config: SessionConfig): Promise<{ session_id: string; name: string }> {
@@ -95,7 +111,7 @@ export class ApiClient {
             method: 'POST',
             body: JSON.stringify({ name, config }),
         });
-        return r.json();
+        return r.json() as Promise<{ session_id: string; name: string }>;
     }
 
     async updateSession(sessionId: string, name: string, config: SessionConfig): Promise<void> {
@@ -118,12 +134,12 @@ export class ApiClient {
 
     async getVariables(sessionId: string): Promise<VariablesResponse> {
         const r = await this._fetch(`/sessions/${sessionId}/variables`);
-        return r.json();
+        return r.json() as Promise<VariablesResponse>;
     }
 
     async listSpecialtyPrompts(): Promise<SpecialtyEntry[]> {
         const r = await this._fetch('/specialty-prompts');
-        return r.json();
+        return r.json() as Promise<SpecialtyEntry[]>;
     }
 
     async stopSession(sessionId: string): Promise<void> {
@@ -132,5 +148,24 @@ export class ApiClient {
 
     async workspaceInit(): Promise<void> {
         await this._fetch('/workspace/init', { method: 'POST' });
+    }
+
+    async listFiles(sessionId: string, subPath = ''): Promise<FileInfo[]> {
+        const query = subPath ? `?path=${encodeURIComponent(subPath)}` : '';
+        const r = await this._fetch(`/sessions/${sessionId}/files${query}`);
+        return r.json() as Promise<FileInfo[]>;
+    }
+
+    async indexDocument(sessionId: string, fileName: string, filePath = 'uploads'): Promise<{ status: string; file_name: string; job_id?: string }> {
+        const r = await this._fetch(`/sessions/${sessionId}/index`, {
+            method: 'POST',
+            body: JSON.stringify({ file_name: fileName, path: filePath }),
+        });
+        return r.json() as Promise<{ status: string; file_name: string; job_id?: string }>;
+    }
+
+    async getIndexStatus(sessionId: string, fileName: string): Promise<IndexStatus> {
+        const r = await this._fetch(`/sessions/${sessionId}/files/${encodeURIComponent(fileName)}/index-status`);
+        return r.json() as Promise<IndexStatus>;
     }
 }

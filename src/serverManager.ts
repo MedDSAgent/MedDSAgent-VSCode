@@ -20,6 +20,7 @@ export class ServerManager implements vscode.Disposable {
     private workspaceRoot: string;
     private port: number;
     private client: ApiClient;
+    extraEnv: Record<string, string> = {};
 
     constructor(workspaceRoot: string) {
         this.workspaceRoot = workspaceRoot;
@@ -52,6 +53,7 @@ export class ServerManager implements vscode.Disposable {
 
         const env: Record<string, string> = {
             ...process.env as Record<string, string>,
+            ...this.extraEnv,
             WORK_DIR: this.workspaceRoot,
             HOST: '127.0.0.1',
             PORT: String(this.port),
@@ -116,7 +118,6 @@ export class ServerManager implements vscode.Disposable {
     }
 
     async stop() {
-        const oldStatus = this._status;
         this._setStatus('stopped');
         if (this.proc) {
             this.proc.kill();
