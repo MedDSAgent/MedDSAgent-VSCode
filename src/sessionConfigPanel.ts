@@ -42,6 +42,12 @@ export class SessionConfigPanel implements vscode.WebviewViewProvider {
         }
     }
 
+    clearSession() {
+        if (this.view) {
+            this.view.webview.postMessage({ type: 'clearSession' });
+        }
+    }
+
     private _getHtml(): string {
         const nonce = getNonce();
         const csp = [
@@ -421,6 +427,11 @@ window.addEventListener('message', async e => {
     document.getElementById('form-area').style.display = 'block';
     await loadSession();
     await loadSpecialtyIndex();
+  } else if (msg.type === 'clearSession') {
+    sessionId = null;
+    serverUrl = null;
+    document.getElementById('placeholder').style.display = 'block';
+    document.getElementById('form-area').style.display = 'none';
   }
 });
 

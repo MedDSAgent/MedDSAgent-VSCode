@@ -44,6 +44,14 @@ export class EnvViewerProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    clearSession() {
+        this.sessionId = undefined;
+        this.serverUrl = '';
+        if (this.view) {
+            this.view.webview.postMessage({ type: 'clearSession' });
+        }
+    }
+
     refresh() {
         if (this.view && this.sessionId) {
             this.view.webview.postMessage({ type: 'refresh' });
@@ -131,6 +139,7 @@ let currentSessionId = null;
 let currentServerUrl = null;
 let hideModules = true;
 let allVars = [];
+let sessionLanguage = 'python';
 
 document.getElementById('hide-modules').addEventListener('change', e => {
   hideModules = e.target.checked;
@@ -143,6 +152,13 @@ window.addEventListener('message', e => {
     currentSessionId = msg.sessionId;
     currentServerUrl = msg.serverUrl;
     loadVariables();
+  } else if (msg.type === 'clearSession') {
+    currentSessionId = null;
+    currentServerUrl = null;
+    allVars = [];
+    sessionLanguage = 'python';
+    document.getElementById('env-header').textContent = 'Environment';
+    document.getElementById('var-list').innerHTML = '<div class="placeholder">No active session</div>';
   } else if (msg.type === 'refresh') {
     loadVariables();
   } else if (msg.type === 'envUpdate') {
@@ -163,7 +179,8 @@ async function loadVariables() {
 }
 
 function applyEnvUpdate(data) {
-  const lang = data.language || 'python';
+  const lang = data.language || sessionLanguage;
+  sessionLanguage = lang;
   allVars = (lang === 'r' ? data.r : data.python) || [];
   document.getElementById('env-header').textContent =
     lang === 'r' ? 'R Environment' : 'Python Environment';

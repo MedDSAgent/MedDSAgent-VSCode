@@ -102,6 +102,11 @@ export class ChatPanel implements vscode.Disposable {
         this.panel.dispose();
     }
 
+    static closeForSession(sessionId: string) {
+        const existing = ChatPanel.panels.get(sessionId);
+        if (existing) existing.panel.dispose();
+    }
+
     private _getHtml(origin: string): string {
         const nonce = getNonce();
         const csp = [

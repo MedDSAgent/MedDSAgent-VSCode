@@ -299,12 +299,32 @@ export async function activate(context: vscode.ExtensionContext) {
                 'Delete'
             );
             if (answer !== 'Delete') return;
+            const sessionId = item.session.session_id;
             try {
-                await serverManager.apiClient.deleteSession(item.session.session_id);
-                sessionsProvider.refresh();
+                await serverManager.apiClient.deleteSession(sessionId);
             } catch (e: any) {
                 vscode.window.showErrorMessage(`Delete failed: ${e.message}`);
+                return;
             }
+
+            // Close the chat tab if open
+            ChatPanel.closeForSession(sessionId);
+
+            // Clear sidebars if the deleted session was the active one
+            if (currentSession?.sessionId === sessionId) {
+                currentSession = undefined;
+                envViewer.clearSession();
+                sessionConfig.clearSession();
+                sessionFilesProvider.setSession(undefined);
+            }
+
+            // Delete the session folder from disk
+            const sessionFolder = path.join(workspaceRoot, 'sessions', sessionId);
+            try {
+                fs.rmSync(sessionFolder, { recursive: true, force: true });
+            } catch {}
+
+            sessionsProvider.refresh();
         })
     );
 
