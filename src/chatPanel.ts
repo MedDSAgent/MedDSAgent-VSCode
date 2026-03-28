@@ -16,6 +16,7 @@ export class ChatPanel implements vscode.Disposable {
     private panel: vscode.WebviewPanel;
     private sessionId: string;
     private serverUrl: string;
+    private extensionUri: vscode.Uri;
 
     private _onEnvUpdate = new vscode.EventEmitter<any>();
     readonly onEnvUpdate = this._onEnvUpdate.event;
@@ -27,13 +28,15 @@ export class ChatPanel implements vscode.Disposable {
         panel: vscode.WebviewPanel,
         sessionId: string,
         serverUrl: string,
+        extensionUri: vscode.Uri,
     ) {
         this.sessionId = sessionId;
         this.serverUrl = serverUrl;
         this.panel = panel;
+        this.extensionUri = extensionUri;
 
         const origin = new URL(serverUrl).origin;
-        this.panel.webview.html = this._getHtml(origin);
+        this.panel.webview.html = this._getHtml(this.panel.webview, origin);
 
         this.panel.webview.onDidReceiveMessage(msg => {
             if (msg.type === 'envUpdate') this._onEnvUpdate.fire(msg.data);
@@ -75,7 +78,7 @@ export class ChatPanel implements vscode.Disposable {
                 localResourceRoots: [extensionUri],
             }
         );
-        const chatPanel = new ChatPanel(webviewPanel, sessionId, serverUrl);
+        const chatPanel = new ChatPanel(webviewPanel, sessionId, serverUrl, extensionUri);
         ChatPanel.panels.set(sessionId, chatPanel);
         return chatPanel;
     }
@@ -93,7 +96,7 @@ export class ChatPanel implements vscode.Disposable {
             enableScripts: true,
             localResourceRoots: [extensionUri],
         };
-        const chatPanel = new ChatPanel(existingPanel, sessionId, serverUrl);
+        const chatPanel = new ChatPanel(existingPanel, sessionId, serverUrl, extensionUri);
         ChatPanel.panels.set(sessionId, chatPanel);
         return chatPanel;
     }
@@ -107,11 +110,14 @@ export class ChatPanel implements vscode.Disposable {
         if (existing) existing.panel.dispose();
     }
 
-    private _getHtml(origin: string): string {
+    private _getHtml(webview: vscode.Webview, origin: string): string {
         const nonce = getNonce();
+        const hljsUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(this.extensionUri, 'media', 'hljs.min.js')
+        );
         const csp = [
             `default-src 'none'`,
-            `script-src 'nonce-${nonce}'`,
+            `script-src 'nonce-${nonce}' ${webview.cspSource}`,
             `style-src 'unsafe-inline'`,
             `connect-src ${origin}`,
             `img-src data: blob:`,
@@ -190,7 +196,7 @@ export class ChatPanel implements vscode.Disposable {
   #msg-input { background: transparent; border: none; color: var(--input-fg); resize: none; outline: none; flex: 1; max-height: 150px; font-size: 13px; font-family: var(--font); line-height: 1.5; }
   .upload-btn { background: none; border: none; color: var(--accent); cursor: pointer; padding: 4px; opacity: 0.7; font-size: 16px; flex-shrink: 0; }
   .upload-btn:hover { opacity: 1; }
-  .send-btn { background: var(--accent); color: #000; border: none; border-radius: 50%; width: 32px; height: 32px; flex-shrink: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; transition: background 0.15s; }
+  .send-btn { background: var(--accent); color: #fff; border: none; border-radius: 50%; width: 32px; height: 32px; flex-shrink: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; transition: background 0.15s; }
   .send-btn:hover { background: var(--accent-hover); }
   .send-btn.stop { background: var(--danger) !important; }
   .send-btn.stop:hover { background: #c62828 !important; }
@@ -201,6 +207,19 @@ export class ChatPanel implements vscode.Disposable {
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
   ::-webkit-scrollbar-thumb:hover { background: #777; }
+
+  /* highlight.js — atom-one-dark theme (scoped to step-content and bubble pre) */
+  .step-content pre code.hljs,.bubble pre code.hljs{display:block;overflow-x:auto;padding:0.8em}
+  .hljs{color:#abb2bf;background:#282c34;border-radius:4px}
+  .hljs-comment,.hljs-quote{color:#5c6370;font-style:italic}
+  .hljs-doctag,.hljs-formula,.hljs-keyword{color:#c678dd}
+  .hljs-deletion,.hljs-name,.hljs-section,.hljs-selector-tag,.hljs-subst{color:#e06c75}
+  .hljs-literal{color:#56b6c2}
+  .hljs-addition,.hljs-attribute,.hljs-meta .hljs-string,.hljs-regexp,.hljs-string{color:#98c379}
+  .hljs-attr,.hljs-number,.hljs-selector-attr,.hljs-selector-class,.hljs-selector-pseudo,.hljs-template-variable,.hljs-type,.hljs-variable{color:#d19a66}
+  .hljs-bullet,.hljs-link,.hljs-meta,.hljs-selector-id,.hljs-symbol,.hljs-title{color:#61aeee}
+  .hljs-built_in,.hljs-class .hljs-title,.hljs-title.class_{color:#e6c07b}
+  .hljs-emphasis{font-style:italic}.hljs-strong{font-weight:700}.hljs-link{text-decoration:underline}
 </style>
 </head>
 <body>
@@ -213,11 +232,12 @@ export class ChatPanel implements vscode.Disposable {
       <button class="upload-btn" id="upload-btn" title="Upload file">&#128206;</button>
       <input type="file" id="file-input" multiple>
       <textarea id="msg-input" rows="1" placeholder="Type a message... (Enter to send, Shift+Enter for newline)"></textarea>
-      <button class="send-btn" id="send-btn" title="Send">&#9658;</button>
+      <button class="send-btn" id="send-btn" title="Send"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3 2l11 6-11 6V2z"/></svg></button>
     </div>
   </div>
 </div>
 
+<script src="${hljsUri}"></script>
 <script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
 
@@ -515,6 +535,7 @@ function appendAgent(html) {
   div.className = 'message agent msg-block';
   div.innerHTML = '<div class="bubble">' + html + '</div>';
   messagesEl.appendChild(div);
+  if (window.hljs) div.querySelectorAll('pre code').forEach(el => window.hljs.highlightElement(el));
 }
 
 function appendSystem(text) {
@@ -552,8 +573,12 @@ function appendToolCall(name, args, title) {
       '<span class="step-arrow">&#9654;</span>' +
       '<span class="step-name">' + esc(name) + '</span>' + titlePart +
     '</div>' +
-    '<div class="step-content"><pre>' + esc(content) + '</pre></div>';
+    '<div class="step-content"><pre><code>' + esc(content) + '</code></pre></div>';
   messagesEl.appendChild(div);
+  if (isCode && window.hljs) {
+    const codeEl = div.querySelector('.step-content code');
+    if (codeEl) window.hljs.highlightElement(codeEl);
+  }
 }
 
 function appendToolOutput(output) {
@@ -586,11 +611,11 @@ function setSendState(generating) {
   if (generating) {
     sendBtn.className = 'send-btn stop';
     sendBtn.title = 'Stop';
-    sendBtn.innerHTML = '&#9646;&#9646;';
+    sendBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><rect x="2" y="2" width="12" height="12" rx="1"/></svg>';
   } else {
     sendBtn.className = 'send-btn';
     sendBtn.title = 'Send';
-    sendBtn.innerHTML = '&#9658;';
+    sendBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3 2l11 6-11 6V2z"/></svg>';
   }
 }
 
@@ -604,7 +629,8 @@ function renderMarkdown(md) {
   // Code blocks (triple-backtick fenced blocks)
   var codeBlockRe = new RegExp(BT+BT+BT+'(\\w*)\\n([\\s\\S]*?)'+BT+BT+BT, 'g');
   s = s.replace(codeBlockRe, function(_, lang, code) {
-    return '<pre><code class="lang-' + esc(lang) + '">' + esc(code) + '</code></pre>';
+    var cls = lang ? 'language-' + esc(lang) : '';
+    return '<pre><code' + (cls ? ' class="' + cls + '"' : '') + '>' + esc(code) + '</code></pre>';
   });
 
   // Inline code
