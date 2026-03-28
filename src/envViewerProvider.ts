@@ -32,6 +32,8 @@ export class EnvViewerProvider implements vscode.WebviewViewProvider {
             if (msg.type === 'ready') {
                 const session = this.getSession();
                 if (session) this.setSession(session.sessionId, session.serverUrl);
+            } else if (msg.type === 'inspectVariable') {
+                this._openInspectionPanel(msg.varData);
             }
         });
     }
@@ -62,6 +64,69 @@ export class EnvViewerProvider implements vscode.WebviewViewProvider {
         if (this.view) {
             this.view.webview.postMessage({ type: 'envUpdate', data });
         }
+    }
+
+    private _openInspectionPanel(v: any) {
+        const panel = vscode.window.createWebviewPanel(
+            'meddsVarInspect',
+            `Inspect: ${v.name}`,
+            vscode.ViewColumn.Beside,
+            { enableScripts: false }
+        );
+        panel.webview.html = this._getInspectionHtml(v);
+    }
+
+    private _getInspectionHtml(v: any): string {
+        const esc = (s: string) => String(s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+        const t = (v.type || '').toLowerCase();
+        const isHtmlPreview = t.includes('dataframe') || t === 'data.frame'
+            || t.includes('figure') || t === 'ggplot';
+
+        // preview is already HTML (to_html() for DataFrames, <img> for figures/plots)
+        const body = isHtmlPreview && v.preview
+            ? `<div class="table-wrap">${v.preview}</div>`
+            : v.preview
+                ? `<pre>${esc(v.preview)}</pre>`
+                : `<pre>${esc(v.value || '')}</pre>`;
+
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:;">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  :root {
+    --accent: #40E0D0;
+    --bg: var(--vscode-editor-background, #1e1e1e);
+    --fg: var(--vscode-editor-foreground, #ececec);
+    --fg-muted: var(--vscode-descriptionForeground, #9ca3af);
+    --border: var(--vscode-panel-border, #444);
+    --mono: var(--vscode-editor-font-family, 'Consolas', 'Monaco', monospace);
+    --font: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font); font-size: 13px; color: var(--fg); background: var(--bg); padding: 16px; overflow: auto; }
+  h2 { font-size: 14px; color: var(--accent); margin-bottom: 4px; }
+  .meta { font-size: 12px; color: var(--fg-muted); margin-bottom: 12px; }
+  .meta span { border: 1px solid var(--border); border-radius: 3px; padding: 1px 6px; margin-right: 6px; font-family: var(--mono); }
+  table.df-table { border-collapse: collapse; width: 100%; font-size: 12px; font-family: var(--mono); }
+  .df-table th { background: rgba(64,224,208,0.1); color: var(--accent); text-align: left; padding: 5px 10px; border: 1px solid var(--border); white-space: nowrap; position: sticky; top: 0; }
+  .df-table td { padding: 4px 10px; border: 1px solid var(--border); white-space: nowrap; }
+  .df-table tr:nth-child(even) { background: rgba(255,255,255,0.03); }
+  .df-table tr:hover { background: rgba(64,224,208,0.05); }
+  pre { font-family: var(--mono); font-size: 12px; color: var(--fg-muted); white-space: pre-wrap; background: rgba(255,255,255,0.03); padding: 12px; border-radius: 4px; border: 1px solid var(--border); }
+</style>
+</head>
+<body>
+<h2>${esc(v.name)}</h2>
+<div class="meta"><span>${esc(v.type || '')}</span>${esc(v.value || '')}</div>
+${body}
+</body>
+</html>`;
     }
 
     private _getHtml(webview: vscode.Webview, sessionId: string, serverUrl: string): string {
@@ -140,10 +205,18 @@ let currentServerUrl = null;
 let hideModules = true;
 let allVars = [];
 let sessionLanguage = 'python';
+let currentFiltered = [];
 
 document.getElementById('hide-modules').addEventListener('change', e => {
   hideModules = e.target.checked;
   renderVars();
+});
+
+document.getElementById('var-list').addEventListener('click', e => {
+  const item = e.target.closest('.var-item');
+  if (!item) return;
+  const i = parseInt(item.dataset.varIndex, 10);
+  if (!isNaN(i)) togglePreview(i);
 });
 
 window.addEventListener('message', e => {
@@ -191,9 +264,10 @@ const MODULE_TYPES = ['module', 'function', 'builtin_function_or_method', 'type'
 
 function renderVars() {
   const container = document.getElementById('var-list');
-  const filtered = hideModules
+  currentFiltered = hideModules
     ? allVars.filter(v => !MODULE_TYPES.some(t => v.type.toLowerCase().includes(t)))
     : allVars;
+  const filtered = currentFiltered;
 
   if (filtered.length === 0) {
     container.innerHTML = '<div class="placeholder">No variables in scope</div>';
@@ -202,7 +276,7 @@ function renderVars() {
 
   container.innerHTML = filtered.map((v, i) => {
     const preview = buildPreview(v, i);
-    return \`<div class="var-item" onclick="togglePreview(\${i})">
+    return \`<div class="var-item" data-var-index="\${i}">
       <div class="var-row">
         <span class="var-name">\${esc(v.name)}</span>
         <span class="var-type">\${esc(v.type)}</span>
@@ -213,27 +287,18 @@ function renderVars() {
   }).join('');
 }
 
+function isDataFrame(t) {
+  return t.includes('dataframe') || t === 'data.frame';
+}
+
 function buildPreview(v, i) {
   if (v.is_error) return \`<pre>\${esc(v.value)}</pre>\`;
   const t = v.type.toLowerCase();
-  if (t.includes('dataframe')) {
-    if (v.preview) {
-      try {
-        const rows = JSON.parse(v.preview);
-        if (Array.isArray(rows) && rows.length > 0) {
-          const cols = Object.keys(rows[0]);
-          const header = cols.map(c => \`<th>\${esc(c)}</th>\`).join('');
-          const body = rows.map(r => \`<tr>\${cols.map(c => \`<td>\${esc(String(r[c] ?? ''))}</td>\`).join('')}</tr>\`).join('');
-          return \`<table class="df-table"><thead><tr>\${header}</tr></thead><tbody>\${body}</tbody></table>\`;
-        }
-      } catch {}
-    }
-    return \`<pre>\${esc(v.value)}</pre>\`;
-  }
-  if (t.includes('figure') || t.includes('plot') || t.includes('image')) {
-    if (v.preview && v.preview.startsWith('data:')) {
-      return \`<img src="\${v.preview}" alt="plot">\`;
-    }
+  // DataFrames open in a new tab — no inline preview
+  if (isDataFrame(t)) return '';
+  // Figures: preview is already an <img> HTML tag from the backend
+  if (t.includes('figure') || t === 'ggplot') {
+    if (v.preview) return v.preview;
   }
   if (v.preview) return \`<pre>\${esc(v.preview)}</pre>\`;
   if (v.value) return \`<pre>\${esc(v.value)}</pre>\`;
@@ -241,6 +306,13 @@ function buildPreview(v, i) {
 }
 
 function togglePreview(i) {
+  const v = currentFiltered[i];
+  if (!v) return;
+  const t = v.type.toLowerCase();
+  if (isDataFrame(t)) {
+    vscode.postMessage({ type: 'inspectVariable', varData: v });
+    return;
+  }
   const el = document.getElementById('preview-' + i);
   if (el) el.classList.toggle('open');
 }
