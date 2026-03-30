@@ -58,6 +58,7 @@ export class ServerManager implements vscode.Disposable {
             HOST: '127.0.0.1',
             PORT: String(this.port),
             MEDDS_CODE_GATE: 'true',
+            PYTHONUTF8: '1',
         };
 
         try {

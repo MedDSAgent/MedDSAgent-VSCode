@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as child_process from 'child_process';
 import {
     MEDDS_DIR, VENV_DIR, VENV_PYTHON, SETUP_FILE,
-    PACKAGE_EXTRAS, PACKAGE_PYPI_NAME, OUTPUT_CHANNEL_SETUP
+    PACKAGE_EXTRAS, PACKAGE_NAME, PACKAGE_GITHUB_URL, OUTPUT_CHANNEL_SETUP
 } from './constants';
 
 export interface SetupInfo {
@@ -115,7 +115,7 @@ export class SetupManager {
 
         // 5. Write setup stamp
         const setupInfo: SetupInfo = {
-            version: PACKAGE_PYPI_NAME + PACKAGE_EXTRAS,
+            version: PACKAGE_NAME + PACKAGE_EXTRAS,
             r_available: rAvailable,
             ...(rHome ? { r_home: rHome } : {}),
             docling_available: false,
@@ -190,7 +190,7 @@ export class SetupManager {
 
         const ok = await this._run(
             VENV_PYTHON,
-            ['-m', 'pip', 'install', 'medds_agent[docling]'],
+            ['-m', 'pip', 'install', `${PACKAGE_NAME}[docling] @ ${PACKAGE_GITHUB_URL}`],
             'Installing Docling (this may take several minutes)...'
         );
         if (!ok) {
@@ -263,7 +263,7 @@ export class SetupManager {
         if (localPath) {
             return localPath + PACKAGE_EXTRAS;
         }
-        return PACKAGE_PYPI_NAME + PACKAGE_EXTRAS;
+        return `${PACKAGE_NAME}${PACKAGE_EXTRAS} @ ${PACKAGE_GITHUB_URL}`;
     }
 
     private _findBasePython(): string | null {
