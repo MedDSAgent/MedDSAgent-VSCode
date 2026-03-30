@@ -33,7 +33,16 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // ── Check if this is a MedDS workspace ───────────────────────────────────
 
-    if (!isMeddsWorkspace()) return;
+    if (!isMeddsWorkspace()) {
+        const answer = await vscode.window.showInformationMessage(
+            'Welcome to MedDS Agent! Open or create a MedDS workspace to get started.',
+            'New Workspace',
+            'Open Workspace'
+        );
+        if (answer === 'New Workspace') await cmdNewWorkspace();
+        else if (answer === 'Open Workspace') await cmdOpenWorkspace();
+        return;
+    }
 
     const workspaceRoot = vscode.workspace.workspaceFolders![0].uri.fsPath;
 
