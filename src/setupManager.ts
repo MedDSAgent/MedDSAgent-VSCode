@@ -11,10 +11,12 @@ export interface SetupInfo {
     version: string;
     r_available: boolean;
     r_home?: string;
+    docling_available: boolean;
 }
 
 export class SetupManager {
     private outputChannel: vscode.OutputChannel;
+    private _doclingPromptShown = false;
 
     constructor() {
         this.outputChannel = vscode.window.createOutputChannel(OUTPUT_CHANNEL_SETUP);
@@ -132,6 +134,7 @@ export class SetupManager {
             version: PACKAGE_PYPI_NAME + PACKAGE_EXTRAS,
             r_available: rAvailable,
             ...(rHome ? { r_home: rHome } : {}),
+            docling_available: false,
         };
         fs.writeFileSync(SETUP_FILE, JSON.stringify(setupInfo, null, 2));
         this.outputChannel.appendLine('Setup complete!');
@@ -181,6 +184,70 @@ export class SetupManager {
         }
         this.outputChannel.appendLine('rpy2 installed successfully.');
         return true;
+    }
+
+    /** Install Docling into the venv. Updates setup.json on success. */
+    async installDocling(): Promise<boolean> {
+        this.outputChannel.show(true);
+        this.outputChannel.appendLine('=== MedDS: Installing Docling ===');
+
+        if (process.platform !== 'darwin') {
+            this.outputChannel.appendLine('Pre-installing CPU-only PyTorch (required by Docling)...');
+            const torchOk = await this._run(
+                VENV_PYTHON,
+                ['-m', 'pip', 'install', 'torch', 'torchvision',
+                    '--index-url', 'https://download.pytorch.org/whl/cpu'],
+                'Installing torch + torchvision (CPU)...'
+            );
+            if (!torchOk) {
+                this.outputChannel.appendLine('Warning: CPU torch pre-install failed; Docling may install a CUDA build instead.');
+            }
+        }
+
+        const ok = await this._run(
+            VENV_PYTHON,
+            ['-m', 'pip', 'install', 'medds_agent[docling]'],
+            'Installing Docling (this may take several minutes)...'
+        );
+        if (!ok) {
+            vscode.window.showErrorMessage('MedDS: Docling installation failed. Check the setup log.');
+            return false;
+        }
+
+        const info = this.readSetupInfo();
+        if (info) {
+            info.docling_available = true;
+            fs.writeFileSync(SETUP_FILE, JSON.stringify(info, null, 2));
+        }
+        this.outputChannel.appendLine('Docling installed successfully.');
+        vscode.window.showInformationMessage('MedDS: Docling installed. Document layout parsing is now available.');
+        return true;
+    }
+
+    /**
+     * Show a one-time-per-session prompt offering to install Docling.
+     * Returns true if Docling is available (already installed, or just installed).
+     * Returns false if the user skipped — indexing should proceed anyway (server fallback).
+     */
+    async promptAndInstallDocling(): Promise<boolean> {
+        const info = this.readSetupInfo();
+        if (info?.docling_available) return true;
+
+        if (this._doclingPromptShown) return false;
+        this._doclingPromptShown = true;
+
+        const answer = await vscode.window.showInformationMessage(
+            'MedDS: Document layout parsing requires Docling (~1.5 GB). ' +
+            'Without it, the agent will use basic file loading instead. Install now?',
+            { modal: true },
+            'Install Docling',
+            'Not Now'
+        );
+
+        if (answer === 'Install Docling') {
+            return await this.installDocling();
+        }
+        return false;
     }
 
     /**

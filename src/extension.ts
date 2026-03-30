@@ -374,6 +374,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     fs.copyFileSync(uri.fsPath, dest);
                     // Trigger indexing directly — don't rely solely on the filesystem watcher
                     if (INDEXABLE_EXTENSIONS.has(path.extname(fileName).toLowerCase()) && serverManager.status === 'running') {
+                        setupManager.promptAndInstallDocling();
                         serverManager.apiClient.indexDocument(currentSession!.sessionId, fileName, 'uploads')
                             .then(result => {
                                 if (result.status === 'already_indexed') {
@@ -418,6 +419,7 @@ export async function activate(context: vscode.ExtensionContext) {
             }
             const fileName = path.basename(item.fsPath);
             try {
+                await setupManager.promptAndInstallDocling();
                 const result = await serverManager.apiClient.indexDocument(sessionId, fileName, 'uploads');
                 if (result.status === 'already_indexed') {
                     vscode.window.showInformationMessage(`'${fileName}' is already indexed.`);
@@ -451,6 +453,7 @@ export async function activate(context: vscode.ExtensionContext) {
             const fileName = parts[parts.length - 1];
 
             try {
+                await setupManager.promptAndInstallDocling();
                 const result = await serverManager.apiClient.indexDocument(droppedSessionId, fileName, 'uploads');
                 if (result.status === 'already_indexed') {
                     if (droppedSessionId === sessionFilesProvider.sessionId) {
