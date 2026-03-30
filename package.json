@@ -2,7 +2,7 @@
   "name": "medds-agent",
   "displayName": "MedDS Agent",
   "description": "Medical Data Science Agent for VS Code — powered by MedDSAgent-Core",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "medds",
   "engines": {
     "vscode": "^1.85.0"
