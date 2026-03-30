@@ -69,23 +69,7 @@ export class SetupManager {
             return false;
         }
 
-        // 3a. Pre-install CPU-only PyTorch so docling does not pull in CUDA weights.
-        //     On Linux/Windows x86-64 we use the official CPU wheel index; on macOS
-        //     the default PyPI wheel is already CPU/MPS-only so we skip the override.
-        if (process.platform !== 'darwin') {
-            this.outputChannel.appendLine('Pre-installing CPU-only PyTorch (required by Docling)...');
-            const torchOk = await this._run(
-                VENV_PYTHON,
-                ['-m', 'pip', 'install', 'torch', 'torchvision',
-                    '--index-url', 'https://download.pytorch.org/whl/cpu'],
-                'Installing torch + torchvision (CPU)...'
-            );
-            if (!torchOk) {
-                this.outputChannel.appendLine('Warning: CPU torch pre-install failed; Docling may install a CUDA build instead.');
-            }
-        }
-
-        // 3b. Install medds-agent (from local path if configured, otherwise PyPI)
+        // 3. Install medds-agent (from local path if configured, otherwise PyPI)
         const packageSpec = this._resolvePackageSpec();
         this.outputChannel.appendLine(`Installing ${packageSpec}...`);
         const installOk = await this._run(
