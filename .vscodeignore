@@ -8,3 +8,4 @@ node_modules/**
 out/**
 **/*.ts
 **/*.map
+vscode_extension_todo.md
