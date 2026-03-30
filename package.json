@@ -11,7 +11,12 @@
     "Other",
     "Machine Learning"
   ],
-  "icon": "media/icon.png",
+  "icon": "media/VSCode_marketplace_icon.png",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MedDSAgent/MedDSAgent-VSCode"
+  },
   "activationEvents": [
     "onWorkspaceContains:.vscode/medds-workspace"
   ],
