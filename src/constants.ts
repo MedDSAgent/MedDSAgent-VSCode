@@ -25,7 +25,7 @@ export const DEFAULT_PORT = 7842;
 export const HEALTH_POLL_INTERVAL_MS = 1000;
 export const HEALTH_POLL_MAX_ATTEMPTS = 30;
 
-export const PACKAGE_EXTRAS = '[server]';
+export const PACKAGE_EXTRAS = '[server,worker]';
 export const PACKAGE_GITHUB_URL = 'git+https://github.com/MedDSAgent/MedDSAgent-Core.git';
 
 /** Mirror of PARSEABLE_EXTENSIONS in medds_agent/document_parser.py */
